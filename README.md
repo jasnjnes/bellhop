@@ -1,6 +1,7 @@
-# Render GitHub MCP Gateway
+# Bellhop
 
-A stateless Python gateway that lets Claude and other MCP clients create repositories,
+Bellhop carries your work to GitHub and back. It is a stateless Python gateway that lets
+Claude and other MCP clients create repositories,
 read and write arbitrary project files, make atomic Git commits, create branches and pull
 requests, and publish releases directly in GitHub.
 
@@ -49,18 +50,24 @@ one commit.
 
 ## Local development
 
+This project requires Python 3.12 or newer. macOS ships 3.9, so use `uv` to get a
+matching interpreter rather than the system Python:
+
 ```bash
 cp .env.example .env
 # Fill in the secrets in .env
 
-python -m pip install -r requirements-dev.txt
-uvicorn app.main:app --reload
+brew install uv          # once
+uv venv --python 3.13
+uv pip install -r requirements-dev.txt
+
+.venv/bin/uvicorn app.main:app --reload
 ```
 
 Run tests:
 
 ```bash
-pytest -q
+.venv/bin/python -m pytest -q
 ```
 
 The local MCP URL is:
@@ -110,7 +117,7 @@ In Claude:
 1. Open **Customize → Connectors**.
 2. Add a custom connector.
 3. Enter:
-   - Name: `GitHub Project Gateway`
+   - Name: `Bellhop`
    - URL: `https://YOUR-SERVICE.onrender.com/mcp`
 4. In advanced settings, enter:
    - OAuth Client ID: the value of `MCP_OAUTH_CLIENT_ID`

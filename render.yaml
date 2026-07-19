@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: github-project-gateway
+    name: bellhop
     runtime: python
     plan: starter
     autoDeployTrigger: commit
@@ -13,7 +13,7 @@ services:
       - key: GITHUB_API_VERSION
         value: 2026-03-10
       - key: MCP_OAUTH_CLIENT_ID
-        value: claude-render-github-gateway
+        value: bellhop
       - key: GITHUB_TOKEN
         sync: false
       - key: GITHUB_DEFAULT_OWNER

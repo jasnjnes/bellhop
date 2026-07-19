@@ -13,7 +13,7 @@ from app.models import FileChange
 _settings = get_settings()
 
 mcp = FastMCP(
-    "GitHub Project Gateway",
+    "Bellhop",
     instructions=(
         "GitHub is the only source of truth. Never impose a standard repository layout. "
         "Use whatever paths and structure the user and agent decide for that specific project. "

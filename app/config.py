@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "GitHub Project Gateway"
+    app_name: str = "Bellhop"
     environment: str = "production"
 
     github_token: str = Field(min_length=1)
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     render_external_url: str = ""
 
-    mcp_oauth_client_id: str = "claude-render-github-gateway"
+    mcp_oauth_client_id: str = "bellhop"
     mcp_oauth_client_secret: str = Field(min_length=16)
     mcp_login_password: str = Field(min_length=12)
     jwt_secret: str = Field(min_length=32)

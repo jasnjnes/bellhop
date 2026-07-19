@@ -37,7 +37,7 @@ class GitHubClient:
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {self.settings.github_token}",
             "X-GitHub-Api-Version": self.settings.github_api_version,
-            "User-Agent": "render-github-mcp-gateway",
+            "User-Agent": "bellhop",
         }
 
     async def _request(

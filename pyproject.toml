@@ -1,5 +1,5 @@
 [project]
-name = "render-github-mcp-gateway"
+name = "bellhop"
 version = "0.1.0"
 description = "Stateless remote MCP gateway that lets AI agents create and version arbitrary GitHub repositories."
 requires-python = ">=3.12"

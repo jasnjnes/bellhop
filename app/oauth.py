@@ -147,7 +147,7 @@ def _form_page(fields: dict[str, str], error: str = "") -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Authorize GitHub Project Gateway</title>
+  <title>Authorize Bellhop</title>
   <style>
     body {{ font-family: system-ui, sans-serif; background:#f6f7f9; margin:0; padding:32px; }}
     main {{ max-width:520px; margin:8vh auto; background:white; padding:28px; border-radius:16px;

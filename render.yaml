@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: github-project-gateway
+    runtime: python
+    plan: starter
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: GITHUB_API_VERSION
+        value: 2026-03-10
+      - key: MCP_OAUTH_CLIENT_ID
+        value: claude-render-github-gateway
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_DEFAULT_OWNER
+        sync: false
+      - key: MCP_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: MCP_LOGIN_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: REQUIRE_EXPECTED_HEAD
+        value: "true"

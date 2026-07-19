@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     max_login_attempts: int = 5
     login_attempt_window_seconds: int = 900
 
+    # DNS-rebinding protection validates the Host and Origin headers on MCP
+    # requests. It exists to stop a malicious web page from reaching an MCP
+    # server bound to loopback. This gateway is public and requires an OAuth
+    # bearer token on every MCP call, so a browser-based attacker cannot make an
+    # authenticated request regardless. Leaving it on only risks 403-ing real
+    # clients whose Origin is not in the allowlist, so it defaults to off.
+    mcp_dns_rebinding_protection: bool = False
+    # Comma-separated extra origins, used only when the protection is enabled.
+    mcp_extra_allowed_origins: str = ""
+
     require_expected_head: bool = True
     max_text_result_bytes: int = 120_000
     max_binary_input_bytes: int = 2_500_000
@@ -65,12 +75,11 @@ class Settings(BaseSettings):
 
     @property
     def mcp_allowed_hosts(self) -> list[str]:
-        """Host header values the MCP transport accepts.
+        """Host header values the MCP transport accepts when protection is enabled.
 
-        FastMCP turns on DNS-rebinding protection with a loopback-only allowlist,
-        which rejects every request once the gateway is deployed behind a real
-        hostname. The public host is added here so the deployed service answers
-        normally while the protection itself stays enabled.
+        FastMCP defaults to a loopback-only allowlist, which rejects every request
+        once the gateway is deployed behind a real hostname. The public host is
+        added so the deployed service answers normally.
         """
         hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
         parsed = urlparse(self.public_base_url)
@@ -81,18 +90,25 @@ class Settings(BaseSettings):
 
     @property
     def mcp_allowed_origins(self) -> list[str]:
-        """Origin header values the MCP transport accepts.
+        """Origin header values the MCP transport accepts when protection is enabled.
 
-        Claude's connector surfaces send an Origin of https://claude.ai when they
-        send one at all; requests without an Origin are treated as same-origin.
+        Client origins cannot be reliably enumerated: Claude is served from both
+        claude.ai and claude.com, and desktop builds may send another origin
+        again. Anything missing here is rejected with 403, which is why
+        mcp_dns_rebinding_protection defaults to off.
         """
-        return [
+        origins = [
             "https://claude.ai",
             "https://www.claude.ai",
+            "https://claude.com",
+            "https://www.claude.com",
+            "https://api.claude.com",
             self.public_base_url,
             "http://localhost:*",
             "http://127.0.0.1:*",
         ]
+        extra = [origin.strip() for origin in self.mcp_extra_allowed_origins.split(",") if origin.strip()]
+        return origins + extra
 
     @property
     def allowed_redirect_uris(self) -> set[str]:

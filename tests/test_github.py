@@ -1,3 +1,4 @@
+import base64
 import json
 
 import httpx
@@ -166,3 +167,42 @@ async def test_initialize_empty_repository(settings):
     )
     assert result["commit_sha"] == "initial-commit"
     assert result["changed_paths"] == ["custom/location/spec.md", "application.py"]
+
+
+@pytest.mark.asyncio
+async def test_initialize_commitless_repository_falls_back_to_contents_api(settings):
+    """A repo with no commits rejects the Git Data API with 409 'Git Repository is empty.'
+
+    That is the state a freshly created repo is in, so initialization has to fall back
+    to the Contents API, which is the only write path GitHub accepts before a first
+    commit exists.
+    """
+    contents_writes: list[tuple[str, dict]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "POST" and "/git/" in path:
+            return httpx.Response(409, json={"message": "Git Repository is empty."})
+        if request.method == "PUT" and "/contents/" in path:
+            contents_writes.append((path, json.loads(request.content)))
+            return httpx.Response(201, json={"commit": {"sha": "bootstrap-commit"}})
+        return httpx.Response(500, json={"message": f"Unexpected: {request.method} {path}"})
+
+    client = GitHubClient(settings, transport=httpx.MockTransport(handler))
+    result = await client.initialize_repository(
+        "jason",
+        "demo",
+        branch="main",
+        message="Initial project",
+        files=[FileChange(path="docs/README.md", content="# Docs\n")],
+    )
+
+    assert result["commit_sha"] == "bootstrap-commit"
+    assert result["changed_paths"] == ["docs/README.md"]
+    assert len(contents_writes) == 1
+    written_path, body = contents_writes[0]
+    assert written_path.endswith("/contents/docs/README.md")
+    assert body["branch"] == "main"
+    assert body["message"] == "Initial project"
+    # The Contents API takes base64 regardless of whether the caller sent text.
+    assert base64.b64decode(body["content"]).decode() == "# Docs\n"

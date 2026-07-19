@@ -25,6 +25,11 @@ def normalize_path(value: str) -> str:
     return str(path)
 
 
+def _is_empty_repository_error(exc: GitHubAPIError) -> bool:
+    """GitHub signals a commit-less repository as 409 'Git Repository is empty.'"""
+    return exc.github_status == 409 and "empty" in exc.message.lower()
+
+
 class GitHubClient:
     def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
         self.settings = settings
@@ -209,16 +214,50 @@ class GitHubClient:
             normalized.append(change.model_copy(update={"path": safe}))
 
         for change in normalized:
+            self._validated_base64(change)
+
+        try:
+            return await self._initialize_via_git_data(
+                owner, repo, branch=branch, message=message, files=normalized
+            )
+        except GitHubAPIError as exc:
+            if not _is_empty_repository_error(exc):
+                raise
+
+        # A repository with no commits rejects every Git Data endpoint with
+        # 409 "Git Repository is empty." The Contents API is the only write
+        # path GitHub accepts before a first commit exists, so bootstrap
+        # through it and let the Git Data path handle any remaining files.
+        return await self._initialize_via_contents_api(
+            owner, repo, branch=branch, message=message, files=normalized
+        )
+
+    def _validated_base64(self, change: FileChange) -> bytes | None:
+        if change.content_base64 is None:
+            return None
+        try:
+            raw = base64.b64decode(change.content_base64, validate=True)
+        except binascii.Error as exc:
+            raise ValidationError(f"Invalid base64 content for {change.path}.") from exc
+        if len(raw) > self.settings.max_binary_input_bytes:
+            raise ValidationError(
+                f"Binary content for {change.path} exceeds "
+                f"{self.settings.max_binary_input_bytes} bytes."
+            )
+        return raw
+
+    async def _initialize_via_git_data(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        branch: str,
+        message: str,
+        files: list[FileChange],
+    ) -> dict[str, Any]:
+        tree_entries: list[dict[str, Any]] = []
+        for change in files:
             if change.content_base64 is not None:
-                try:
-                    raw = base64.b64decode(change.content_base64, validate=True)
-                except binascii.Error as exc:
-                    raise ValidationError(f"Invalid base64 content for {change.path}.") from exc
-                if len(raw) > self.settings.max_binary_input_bytes:
-                    raise ValidationError(
-                        f"Binary content for {change.path} exceeds "
-                        f"{self.settings.max_binary_input_bytes} bytes."
-                    )
                 blob_payload = {"content": change.content_base64, "encoding": "base64"}
             else:
                 assert change.content is not None
@@ -266,7 +305,57 @@ class GitHubClient:
             "branch": branch,
             "commit_sha": commit["sha"],
             "commit_url": f"https://github.com/{owner}/{repo}/commit/{commit['sha']}",
-            "changed_paths": [change.path for change in normalized],
+            "changed_paths": [change.path for change in files],
+        }
+
+    async def _initialize_via_contents_api(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        branch: str,
+        message: str,
+        files: list[FileChange],
+    ) -> dict[str, Any]:
+        seed, remaining = files[0], files[1:]
+        if seed.content_base64 is not None:
+            seed_content = seed.content_base64
+        else:
+            assert seed.content is not None
+            seed_content = base64.b64encode(seed.content.encode()).decode()
+
+        created = await self._request(
+            "PUT",
+            f"/repos/{owner}/{repo}/contents/{quote(seed.path, safe='/')}",
+            json={
+                "message": message,
+                "content": seed_content,
+                "branch": branch,
+            },
+        )
+        commit_sha = created["commit"]["sha"]
+
+        # The Contents API writes one file per commit, so anything beyond the
+        # seed goes in a second atomic commit now that a head exists.
+        if remaining:
+            follow_up = await self.commit_files(
+                owner,
+                repo,
+                branch=branch,
+                message=message,
+                changes=remaining,
+                expected_head=commit_sha,
+            )
+            commit_sha = follow_up["commit_sha"]
+
+        return {
+            "owner": owner,
+            "repository": repo,
+            "branch": branch,
+            "commit_sha": commit_sha,
+            "commit_url": f"https://github.com/{owner}/{repo}/commit/{commit_sha}",
+            "changed_paths": [change.path for change in files],
+            "bootstrapped_via_contents_api": True,
         }
 
     async def resolve_commit(

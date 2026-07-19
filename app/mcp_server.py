@@ -3,10 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
+from app.config import get_settings
 from app.dependencies import get_github
 from app.models import FileChange
 
+
+_settings = get_settings()
 
 mcp = FastMCP(
     "GitHub Project Gateway",
@@ -25,6 +29,11 @@ mcp = FastMCP(
     stateless_http=True,
     json_response=True,
     streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_settings.mcp_allowed_hosts,
+        allowed_origins=_settings.mcp_allowed_origins,
+    ),
 )
 
 

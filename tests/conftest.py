@@ -1,6 +1,17 @@
+import os
+
 import pytest
 
-from app.config import Settings
+# Modules such as app.mcp_server read settings at import time, so the required
+# secrets must exist in the environment before any app module is imported.
+os.environ.setdefault("GITHUB_TOKEN", "test-github-token")
+os.environ.setdefault("PUBLIC_BASE_URL", "https://gateway.test")
+os.environ.setdefault("MCP_OAUTH_CLIENT_ID", "test-client")
+os.environ.setdefault("MCP_OAUTH_CLIENT_SECRET", "test-client-secret-123")
+os.environ.setdefault("MCP_LOGIN_PASSWORD", "test-login-password")
+os.environ.setdefault("JWT_SECRET", "x" * 64)
+
+from app.config import Settings  # noqa: E402
 
 
 @pytest.fixture()

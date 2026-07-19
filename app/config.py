@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -61,6 +62,37 @@ class Settings(BaseSettings):
     @property
     def mcp_resource(self) -> str:
         return f"{self.public_base_url}/mcp"
+
+    @property
+    def mcp_allowed_hosts(self) -> list[str]:
+        """Host header values the MCP transport accepts.
+
+        FastMCP turns on DNS-rebinding protection with a loopback-only allowlist,
+        which rejects every request once the gateway is deployed behind a real
+        hostname. The public host is added here so the deployed service answers
+        normally while the protection itself stays enabled.
+        """
+        hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+        parsed = urlparse(self.public_base_url)
+        if parsed.hostname:
+            hosts.append(parsed.netloc)
+            hosts.append(f"{parsed.hostname}:*")
+        return hosts
+
+    @property
+    def mcp_allowed_origins(self) -> list[str]:
+        """Origin header values the MCP transport accepts.
+
+        Claude's connector surfaces send an Origin of https://claude.ai when they
+        send one at all; requests without an Origin are treated as same-origin.
+        """
+        return [
+            "https://claude.ai",
+            "https://www.claude.ai",
+            self.public_base_url,
+            "http://localhost:*",
+            "http://127.0.0.1:*",
+        ]
 
     @property
     def allowed_redirect_uris(self) -> set[str]:

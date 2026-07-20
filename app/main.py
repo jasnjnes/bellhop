@@ -10,6 +10,7 @@ from app.errors import GatewayError
 from app.mcp_server import mcp
 from app.oauth import router as oauth_router
 from app.security import MCPBearerAuthMiddleware
+from app.upload_api import router as upload_router
 
 
 @asynccontextmanager
@@ -55,5 +56,6 @@ def health():
 
 
 app.include_router(oauth_router)
+app.include_router(upload_router)
 app.mount("/mcp", mcp.streamable_http_app())
 app.add_middleware(MCPBearerAuthMiddleware)

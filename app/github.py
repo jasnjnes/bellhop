@@ -232,18 +232,19 @@ class GitHubClient:
             owner, repo, branch=branch, message=message, files=normalized
         )
 
-    def _validated_base64(self, change: FileChange) -> bytes | None:
+    def _validated_base64(self, change: FileChange, limit: int | None = None) -> bytes | None:
         if change.content_base64 is None:
             return None
         try:
             raw = base64.b64decode(change.content_base64, validate=True)
         except binascii.Error as exc:
             raise ValidationError(f"Invalid base64 content for {change.path}.") from exc
-        if len(raw) > self.settings.max_binary_input_bytes:
-            raise ValidationError(
-                f"Binary content for {change.path} exceeds "
-                f"{self.settings.max_binary_input_bytes} bytes."
-            )
+        # The default limit caps binary that an agent inlines through the model's
+        # context. Upload tickets stream bytes straight to the gateway and never
+        # put them in context, so that path passes its own, larger limit.
+        effective = self.settings.max_binary_input_bytes if limit is None else limit
+        if len(raw) > effective:
+            raise ValidationError(f"Binary content for {change.path} exceeds {effective} bytes.")
         return raw
 
     async def _initialize_via_git_data(
@@ -519,6 +520,7 @@ class GitHubClient:
         changes: list[FileChange],
         expected_head: str | None,
         auto_rebase: bool = True,
+        binary_limit_bytes: int | None = None,
     ) -> dict[str, Any]:
         if not changes:
             raise ValidationError("At least one file change is required.")
@@ -598,15 +600,7 @@ class GitHubClient:
                 continue
 
             if change.content_base64 is not None:
-                try:
-                    raw = base64.b64decode(change.content_base64, validate=True)
-                except binascii.Error as exc:
-                    raise ValidationError(f"Invalid base64 content for {change.path}.") from exc
-                if len(raw) > self.settings.max_binary_input_bytes:
-                    raise ValidationError(
-                        f"Binary content for {change.path} exceeds "
-                        f"{self.settings.max_binary_input_bytes} bytes."
-                    )
+                self._validated_base64(change, binary_limit_bytes)
                 blob_payload = {
                     "content": change.content_base64,
                     "encoding": "base64",

@@ -8,6 +8,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from app.config import get_settings
 from app.dependencies import get_github
 from app.models import FileChange
+from app.uploads import UploadTicketService
 
 
 _settings = get_settings()
@@ -189,6 +190,57 @@ async def commit_repository_files(
         expected_head=expected_head,
         auto_rebase=auto_rebase,
     )
+
+
+@mcp.tool()
+async def create_upload_ticket(
+    owner: str,
+    repository: str,
+    path: str,
+    branch: str,
+    message: str,
+) -> dict[str, Any]:
+    """
+    Get a short-lived URL for uploading one file's bytes directly to the gateway.
+
+    Use this instead of commit_repository_files whenever the file is large or
+    binary and already exists on disk in your execution environment. The bytes go
+    straight from your sandbox to the gateway and never pass through the
+    conversation, so this avoids the base64 size limit on inline commits.
+
+    Then POST the raw bytes to the returned upload_url, for example:
+
+        import urllib.request
+        data = open("out.pdf", "rb").read()
+        req = urllib.request.Request(upload_url, data=data, method="POST")
+        print(urllib.request.urlopen(req).read())
+
+    The gateway commits the bytes to the ticketed path using its own GitHub
+    credential. The ticket authorizes exactly that one path on that one branch,
+    expires within minutes, and works only once — request a new one per file and
+    per retry.
+
+    Note: the sandbox must be allowed to reach the gateway's host. If the POST
+    fails on the network rather than returning an error from the gateway, the
+    gateway's domain needs to be added to the environment's allowed domains.
+    """
+    settings = get_settings()
+    ticket = UploadTicketService(settings).issue(
+        owner=owner,
+        repo=repository,
+        path=path,
+        branch=branch,
+        message=message,
+    )
+    return {
+        "ticket": ticket.token,
+        "upload_url": ticket.upload_url,
+        "method": "POST",
+        "path": ticket.path,
+        "expires_in": ticket.expires_in,
+        "max_bytes": ticket.max_bytes,
+        "single_use": True,
+    }
 
 
 @mcp.tool()

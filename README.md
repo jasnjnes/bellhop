@@ -163,13 +163,44 @@ per-user GitHub authorization, persistent token revocation, and per-repository p
 - GitHub code search may lag immediately after a commit because GitHub indexes it
   asynchronously.
 - MCP tool results are intentionally capped. Large files remain in GitHub.
-- Small binaries can be written with Base64. Large generated artifacts should use Git LFS,
-  a release asset workflow, or a dedicated upload path.
+- Small binaries can be written with Base64. Larger artifacts should use an upload ticket
+  (see below), Git LFS, or a release asset workflow.
 - Stateless authorization codes cannot be centrally revoked before expiry. They expire in
   five minutes and require PKCE.
 - Branch protection and repository rules can reject direct updates. Use a branch and pull
   request when required.
 
+
+## Upload tickets
+
+Inline Base64 commits push file bytes through the model's context, which caps them at
+`MAX_BINARY_INPUT_BYTES` (2.5 MB) and wastes tokens. An upload ticket avoids that: the agent
+asks for a ticket over the authenticated MCP connection, then POSTs the raw bytes from its
+own execution environment straight to the gateway.
+
+1. The agent calls `create_upload_ticket(owner, repository, path, branch, message)`.
+2. The gateway returns an `upload_url` valid for `UPLOAD_TICKET_TTL_SECONDS` (default 300).
+3. The agent POSTs the file bytes to that URL.
+4. The gateway commits them with the GitHub credential it already holds.
+
+The ticket is a capability, not a credential. It is a signed JWT authorizing exactly one
+path, on one branch, in one repository, and it grants no GitHub access if it leaks. It is
+burned on first redemption; retries need a fresh ticket. Uploads are capped at
+`MAX_UPLOAD_BYTES` (default 25 MiB, under GitHub's 100 MB blob limit).
+
+`POST /upload/{ticket}` is intentionally not behind the OAuth bearer requirement, because
+the sandbox posting the bytes does not hold a gateway access token. The ticket is the
+credential.
+
+**Single-use is enforced in memory.** Redeemed ticket IDs live in a process-local set, so a
+restart inside a ticket's TTL window would allow one replay of that ticket against its own
+pre-committed path. This is accepted deliberately: the gateway is single-owner and runs as
+one instance with no datastore. A shared deployment needs Redis or Postgres there.
+
+**The caller's environment must be allowed to reach the gateway's host.** In claude.ai this
+means adding the gateway domain under settings → capabilities. Without it the POST fails at
+the network layer, after a ticket has already been issued, which looks like a gateway error
+but is not one.
 
 ## Empty repository initialization
 

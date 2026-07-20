@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     max_binary_input_bytes: int = 2_500_000
     max_commit_files: int = 100
 
+    # Upload tickets let a sandboxed agent push file bytes straight to the
+    # gateway instead of inlining them as base64 through the model's context.
+    # The cap sits well under GitHub's 100 MB blob limit.
+    upload_ticket_ttl_seconds: int = 300
+    max_upload_bytes: int = 26_214_400  # 25 MiB
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

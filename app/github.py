@@ -192,6 +192,7 @@ class GitHubClient:
         branch: str,
         message: str,
         files: list[FileChange],
+        binary_limit_bytes: int | None = None,
     ) -> dict[str, Any]:
         if not files:
             raise ValidationError("At least one initial file is required.")
@@ -214,7 +215,7 @@ class GitHubClient:
             normalized.append(change.model_copy(update={"path": safe}))
 
         for change in normalized:
-            self._validated_base64(change)
+            self._validated_base64(change, binary_limit_bytes)
 
         try:
             return await self._initialize_via_git_data(
@@ -675,6 +676,55 @@ class GitHubClient:
             "rebased_onto_current_head": rebased_onto_current_head,
             "expected_head": expected_head,
         }
+
+    async def commit_upload(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        branch: str,
+        message: str,
+        path: str,
+        content_base64: str,
+        max_bytes: int,
+    ) -> dict[str, Any]:
+        """Commit one uploaded file, initializing the branch if it has no commits yet.
+
+        Upload tickets are commonly redeemed against a repository that was just
+        created with auto_init=false, so it has no commits and the target branch
+        ref does not exist. A plain commit needs an existing head and would fail
+        with 404; here we detect that and create the branch's first commit
+        instead, so the very first document upload after create_repository lands
+        instead of getting stuck.
+        """
+        change = FileChange(path=path, content_base64=content_base64)
+
+        try:
+            head = await self.branch_head(owner, repo, branch)
+        except GitHubAPIError as exc:
+            if exc.github_status != 404:
+                raise
+            head = None
+
+        if head is None:
+            return await self.initialize_repository(
+                owner,
+                repo,
+                branch=branch,
+                message=message,
+                files=[change],
+                binary_limit_bytes=max_bytes,
+            )
+
+        return await self.commit_files(
+            owner,
+            repo,
+            branch=branch,
+            message=message,
+            changes=[change],
+            expected_head=head["commit_sha"],
+            binary_limit_bytes=max_bytes,
+        )
 
     async def move_file(
         self,

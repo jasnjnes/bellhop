@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, Request
 from app.config import Settings, get_settings
 from app.dependencies import get_github
 from app.github import GitHubClient
-from app.models import FileChange
 from app.uploads import UploadTicketService
 
 logger = logging.getLogger(__name__)
@@ -44,17 +43,17 @@ async def redeem_upload_ticket(
     path = claims["path"]
     branch = claims["branch"]
 
-    head = await github.branch_head(owner, repo, branch)
-    result = await github.commit_files(
+    # commit_upload creates the branch's first commit when the repository was just
+    # created and has no commits yet, so the first upload after create_repository
+    # does not fail on a missing branch ref.
+    result = await github.commit_upload(
         owner,
         repo,
         branch=branch,
         message=claims["message"],
-        changes=[
-            FileChange(path=path, content_base64=base64.b64encode(body).decode("ascii"))
-        ],
-        expected_head=head["commit_sha"],
-        binary_limit_bytes=int(claims["max_bytes"]),
+        path=path,
+        content_base64=base64.b64encode(body).decode("ascii"),
+        max_bytes=int(claims["max_bytes"]),
     )
 
     logger.info(

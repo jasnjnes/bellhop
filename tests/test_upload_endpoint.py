@@ -142,3 +142,49 @@ def test_the_upload_endpoint_does_not_require_an_oauth_bearer_token(client, comm
     response = client.post(f"/upload/{issue()}", content=b"payload")
 
     assert response.status_code == 200
+
+
+@pytest.fixture()
+def empty_repository():
+    """Mock a repository that was just created and has no commits or branch yet.
+
+    GitHub answers the branch-ref lookup with 404 until a first commit exists, so
+    the upload must bootstrap the branch instead of failing. Records the blob PUT.
+    """
+    recorded: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.method == "GET" and path.endswith("/git/ref/heads/main"):
+            return httpx.Response(404, json={"message": "Not Found"})
+        # Empty repositories reject the Git Data endpoints with 409 "empty", which
+        # routes initialization through the Contents API.
+        if request.method == "POST" and path.endswith("/git/blobs"):
+            return httpx.Response(409, json={"message": "Git Repository is empty."})
+        if request.method == "PUT" and "/contents/" in path:
+            recorded["contents"] = request.read()
+            return httpx.Response(201, json={"commit": {"sha": "seedcommit"}})
+        return httpx.Response(500, json={"message": f"Unexpected: {request.method} {path}"})
+
+    client_with_mock = GitHubClient(get_settings(), transport=httpx.MockTransport(handler))
+    app.dependency_overrides[get_github] = lambda: client_with_mock
+    yield recorded
+    app.dependency_overrides.pop(get_github, None)
+
+
+def test_first_upload_to_a_freshly_created_empty_repo_bootstraps_the_branch(client, empty_repository):
+    """Uploading the first document right after create_repository must not 404.
+
+    The branch ref does not exist yet in an empty repository, so the redeem path
+    has to create the first commit rather than assume an existing head.
+    """
+    response = client.post(f"/upload/{issue()}", content=b"pdf-bytes")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["commit_sha"] == "seedcommit"
+    assert body["path"] == "artifacts/report.bin"
+    assert body["bytes_written"] == len(b"pdf-bytes")
+    recorded_bytes = empty_repository.get("contents")
+    assert recorded_bytes is not None, "the seed file should have been written"
+    assert b"pdf-bytes" not in recorded_bytes, "bytes should be sent base64-encoded"
